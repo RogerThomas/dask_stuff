@@ -122,10 +122,10 @@ def calculate_switching(df):
 
 
 def read_df(cann_group_df):
-    glob_string = 's3://switching-small/trans_product/2017_01*.parquet'
-    glob_string = 'data/2017_01*.parquet'
+    glob_string = 'data/2017*.parquet'
+    glob_string = 's3://switching-large/trans_product/2017_01*.parquet'
     logger.info('Reading data %s' % glob_string)
-    df = ddf.read_parquet(glob_string)
+    df = ddf.read_parquet(glob_string, engine='pyarrow')
     df = filter_and_map_cann_groups(df, cann_group_df)
     df = df.persist()
     df = df.drop(['unitVolume'], axis=1)
@@ -138,6 +138,7 @@ def main(*args):
         client = Client()
     else:
         client = Client('127.0.0.1:8786')
+    print(client)
     global ncores
     ncores = sum(client.ncores().values())
     set_aws_creds()
@@ -145,9 +146,6 @@ def main(*args):
     # pd.set_option('display.max_rows', 1000)  # noqa
     cann_group_df = make_cann_group_df()
     df = read_df(cann_group_df)
-    df = df.compute()
-    print(df)
-    return
     """
     # No here
     df = df.compute()
