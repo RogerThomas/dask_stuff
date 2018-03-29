@@ -32,7 +32,7 @@ def make_cann_group_df():
     cgs = [(1, 'Nestle'), (2, 'Cadbury'), (3, 'Other')]
     cann_group_data = []
     current_product_keys = set()
-    for _ in range(10):
+    for _ in range(500):
         while True:
             product_key = random.randint(0, Config.num_products)
             if product_key not in current_product_keys:
@@ -167,14 +167,18 @@ def main(*args):
     df = df.set_index('customerKey')
     logger.info('repartition')
     df = df.repartition(npartitions=ncores)
+    logger.info('Persisting')
     df = client.persist(df)
+    logger.info('Cann Groups')
     for cann_group_key in cann_group_df['cannGroupKey'].unique().tolist():
         print('Filtering Cann Group %s' % cann_group_key)
         cann_df = df[df['cannGroupKey'] == cann_group_key]
         cann_df = cann_df.repartition(npartitions=ncores)
         cann_df = cann_df.persist()
         print('This df: %s' % (len(cann_df),))
-        calculate_switching(cann_df)
+        with Timer('%s' % (cann_group_key,)):
+            calculate_switching(cann_df)
+        return
 
 
 if __name__ == '__main__':
