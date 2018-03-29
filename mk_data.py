@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 import json
+import s3fs
 import random
 import sys
 
+import boto3
 import numpy as np
 import pandas as pd
 
-from common import Config
+from common import Config, set_aws_creds
 
 
 def generate_baskets(n):
@@ -55,7 +57,28 @@ def group_and_sum_transactions(df):
     return df
 
 
+class S3Cli:
+    def __init__(self, bucket='switching-large'):
+        set_aws_creds()
+        self._cli = boto3.client('s3')
+        self._bucket = bucket
+        self._cli.put_object(Bucket=bucket, Body='', Key='trans_product/')
+        self._s3fs = s3fs.S3FileSystem(anon=False)
+
+    def store_df(self, df, key, folder='trans_product'):
+        path = '%s/%s/%s.parquet' % (self._bucket, folder, key)
+        with self._s3fs.open(path, 'wb') as fh:
+            df.to_parquet(fh, engine='pyarrow', compression='snappy')
+
+    def store_obj_as_json(self, obj, key, folder='trans_product'):
+        path = '%s/%s/%s.json' % (self._bucket, folder, key)
+        with self._s3fs.open(path, 'wb') as fh:
+            json_str = json.dumps(obj, indent=4, sort_keys=True)
+            fh.write(json_str.encode('utf8'))
+
+
 def make_data():
+    s3_cli = S3Cli()
     metadata = {'num_rows': 0, 'memory_mb': 0, 'memory_gb': 0}
     current_transaction_key = 0
     for date in Config.dates:
@@ -65,16 +88,17 @@ def make_data():
         date_str = date_to_fname(date)
         df = group_and_sum_transactions(df)
         df['transactionDate'] = date
-        fname = 'data/%s.parquet' % (date_str,)
-        df.to_parquet(fname, engine='fastparquet')
+        # fname = 'data/%s.parquet' % (date_str,)
+        # df.to_parquet(fname, engine='fastparquet')
+        key = date_str
+        s3_cli.store_df(df, key)
         memory_mb = df.memory_usage(index=True).sum() / (1000 * 1000)
         print('DF Size: %s Mem MB: %s' % (len(df), memory_mb))
         metadata['num_rows'] += len(df)
         metadata['memory_mb'] += memory_mb
         metadata['memory_gb'] += memory_mb / 1000
+        s3_cli.store_obj_as_json(metadata, 'metadata')
         print(metadata)
-        with open('data/metadata.json', 'w+') as fh:
-            json.dump(metadata, fh, sort_keys=True, indent=4)
 
 
 def date_to_fname(date):
