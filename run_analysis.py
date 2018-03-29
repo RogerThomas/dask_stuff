@@ -5,11 +5,18 @@ import time
 import dask.dataframe as ddf
 import numpy as np
 import pandas as pd
-from dask.distributed import Client
+from dask.distributed import Client, LocalCluster
 
 from common import Config, logger
+import sys
 
-client = Client('127.0.0.1:8786')
+args = sys.argv[1:]
+
+if args:
+    cluster = LocalCluster()
+    client = Client(cluster)
+else:
+    client = Client('127.0.0.1:8786')
 ncores = sum(client.ncores().values())
 
 
