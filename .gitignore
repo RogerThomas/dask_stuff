@@ -4,3 +4,4 @@ dask-worker-space
 week_store_product
 *.swp
 __pycache__
+config.json
