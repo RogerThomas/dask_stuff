@@ -3,11 +3,11 @@ import random
 import time
 
 import dask.dataframe as ddf
-import pandas as pd
 import numpy as np
+import pandas as pd
 from dask.distributed import Client
-from common import Config, logger
 
+from common import Config, logger
 
 client = Client('127.0.0.1:8786')
 ncores = sum(client.ncores().values())
@@ -31,12 +31,12 @@ def make_cann_group_df():
     random.seed(10)
     cgs = [(1, 'Nestle'), (2, 'Cadbury'), (3, 'Other')]
     cann_group_data = []
-    ps = set()
+    current_product_keys = set()
     for _ in range(10):
         while True:
             product_key = random.randint(0, Config.num_products)
-            if product_key not in ps:
-                ps.add(product_key)
+            if product_key not in current_product_keys:
+                current_product_keys.add(product_key)
                 break
         cann_group = random.choice(cgs)
         cann_group_data.append(dict(
@@ -64,7 +64,7 @@ def trans_seq_tot(df):
     return df
 
 
-def calc_spend_switch(seq_num_df, within_trans=True):
+def calc_spend_switch(seq_num_df, within_trans=False):
     merge_fields = ['customerKey', 'transSeqNum']
     seq_tot_df = trans_seq_tot(seq_num_df)
     seq_tot_df_a = seq_tot_df
@@ -111,7 +111,7 @@ def trans_seq_num(df, cols=None):
     return df
 
 
-def for_cann(df, cann_group_key):
+def calculate_switching(df):
     tmp_df = df.head(1)
     result = trans_seq_num(tmp_df)
     meta = [(col, dtype) for col, dtype in result.dtypes.items()]
@@ -134,6 +134,7 @@ def read_df(cann_group_df):
 
 def main():
     pd.set_option('display.large_repr', 'truncate'); pd.set_option('display.max_columns', 0)  # noqa
+    pd.set_option('display.max_rows', 1000)  # noqa
     cann_group_df = make_cann_group_df()
     df = read_df(cann_group_df)
     # No here
@@ -151,7 +152,6 @@ def main():
     print(tabulate(df, headers='keys', showindex=False))
     return
     """
-    # pd.set_option('display.max_rows', 100)  # noqa
     df = client.persist(df)
     logger.info('Setting index')
     df = df.set_index('customerKey')
@@ -164,7 +164,7 @@ def main():
         for_df = for_df.repartition(npartitions=ncores)
         for_df = for_df.persist()
         print('This df: %s' % (len(df),))
-        for_cann(for_df, cann_group_key)
+        calculate_switching(for_df, cann_group_key)
         return
 
 
