@@ -10,6 +10,9 @@ import pandas as pd
 
 from common import Config, set_aws_creds
 
+sales = (np.arange(0, 1000) / 100).astype(np.float32).round(2)
+print(sales.tolist())
+
 
 def generate_baskets(n):
     baskets = []
@@ -42,7 +45,7 @@ def make_df(current_transaction_key):
         productKey=np.random.randint(1, Config.num_products + 1, n, dtype=np.int32),
         storeKey=repeat_arr(1, Config.num_stores + 1),
         customerKey=repeat_arr(1, Config.num_customers + 1),
-        grossSales=np.random.random(n).astype(np.float32),
+        grossSales=np.random.choice(sales, n),
     ))
     df['netSales'] = df['grossSales']
     return baskets, df
