@@ -11,6 +11,8 @@ import pandas as pd
 from common import Config, set_aws_creds
 
 sales = (np.arange(0, 1000) / 100).astype(np.float32).round(2)
+compression = 'brotli'
+compression = 'gzip'
 print(sales.tolist())
 
 
@@ -61,7 +63,7 @@ def group_and_sum_transactions(df):
 
 
 class S3Cli:
-    def __init__(self, bucket='switching-large'):
+    def __init__(self, bucket='switching-large-%s' % compression):
         set_aws_creds()
         self._cli = boto3.client('s3')
         self._bucket = bucket
@@ -71,7 +73,7 @@ class S3Cli:
     def store_df(self, df, key, folder='trans_product'):
         path = '%s/%s/%s.parquet' % (self._bucket, folder, key)
         with self._s3fs.open(path, 'wb') as fh:
-            df.to_parquet(fh, engine='pyarrow', compression='snappy')
+            df.to_parquet(fh, engine='pyarrow', compression=compression)
 
     def store_obj_as_json(self, obj, key, folder='trans_product'):
         path = '%s/%s/%s.json' % (self._bucket, folder, key)
@@ -84,7 +86,9 @@ def make_data():
     s3_cli = S3Cli()
     metadata = {'num_rows': 0, 'memory_mb': 0, 'memory_gb': 0}
     current_transaction_key = 0
-    for date in Config.dates:
+    for i, date in enumerate(Config.dates):
+        if i == 31:
+             break
         print(date)
         baskets, df = make_df(current_transaction_key)
         current_transaction_key += len(baskets)
