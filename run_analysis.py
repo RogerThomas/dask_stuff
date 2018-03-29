@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from dask.distributed import Client
 
-from common import Config, logger, set_aws_creds
+from common import Config, logger, set_aws_creds, df_mem_in_mb
 
 ncores = None
 
@@ -32,7 +32,7 @@ def make_cann_group_df():
     cgs = [(1, 'Nestle'), (2, 'Cadbury'), (3, 'Other')]
     cann_group_data = []
     current_product_keys = set()
-    for _ in range(500):
+    for _ in range(250):
         while True:
             product_key = random.randint(0, Config.num_products)
             if product_key not in current_product_keys:
@@ -50,8 +50,8 @@ def make_cann_group_df():
 
 
 def filter_and_map_cann_groups(df, cann_group_df):
-    df = df[df['productKey'].isin(cann_group_df['productKey'])]
     df['cannGroupKey'] = df['productKey'].map(cann_group_df['cannGroupKey'])
+    df = df[df['cannGroupKey'].isin(cann_group_df['cannGroupKey'].unique())].copy()
     return df
 
 
@@ -123,13 +123,15 @@ def calculate_switching(df):
 
 def read_df(cann_group_df):
     glob_string = 'data/2017*.parquet'
-    glob_string = 's3://switching-large/trans_product/2017_01*.parquet'
+    glob_string = 's3://switching-large/trans_product/2017_02*.parquet'
     logger.info('Reading data %s' % glob_string)
     df = ddf.read_parquet(glob_string, engine='pyarrow')
-    df = filter_and_map_cann_groups(df, cann_group_df)
+    df = df[df['productKey'].isin(cann_group_df['productKey'])]
     df = df.persist()
+    logger.info('Persisting data: %s' % len(df))
+    df['cannGroupKey'] = df['productKey'].map(cann_group_df['cannGroupKey'])
     df = df.drop(['unitVolume'], axis=1)
-    logger.info('Read data')
+    logger.info('Read data: %s rows, %s mb' % (len(df), df_mem_in_mb(df).compute()))
     return df
 
 
@@ -145,7 +147,10 @@ def main(*args):
     pd.set_option('display.large_repr', 'truncate'); pd.set_option('display.max_columns', 0)  # noqa
     # pd.set_option('display.max_rows', 1000)  # noqa
     cann_group_df = make_cann_group_df()
-    df = read_df(cann_group_df)
+    with Timer('read'):
+    	df = read_df(cann_group_df)
+    df = df.set_index('customerKey', drop=True)
+    df = df.repartition(npartitions=ncores)
     """
     # No here
     df = df.compute()
@@ -154,27 +159,13 @@ def main(*args):
     print(df)
     print(df.columns.tolist())
     return
-    return
-    df = df[df['productKey'].isin([189])]
-    from tabulate import tabulate
-    df = df.reset_index(drop=True)
-    print(tabulate(df, headers='keys', showindex=False))
-    return
     """
-    logger.info('Persisting')
-    df = client.persist(df)
-    logger.info('Setting index')
-    df = df.set_index('customerKey')
-    logger.info('repartition')
-    df = df.repartition(npartitions=ncores)
     logger.info('Persisting')
     df = client.persist(df)
     logger.info('Cann Groups')
     for cann_group_key in cann_group_df['cannGroupKey'].unique().tolist():
         print('Filtering Cann Group %s' % cann_group_key)
         cann_df = df[df['cannGroupKey'] == cann_group_key]
-        cann_df = cann_df.repartition(npartitions=ncores)
-        cann_df = cann_df.persist()
         print('This df: %s' % (len(cann_df),))
         with Timer('%s' % (cann_group_key,)):
             calculate_switching(cann_df)

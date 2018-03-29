@@ -43,3 +43,8 @@ def set_aws_creds():
     aws_creds = config['AWS']
     os.environ['aws_access_key_id'.upper()] = aws_creds['id']
     os.environ['aws_secret_access_key'.upper()] = aws_creds['key']
+
+
+def df_mem_in_mb(df):
+    memory_mb = df.memory_usage(index=True).sum() / (1000 * 1000)
+    return memory_mb
