@@ -1,0 +1,6 @@
+data
+dask-worker-space
+.env
+week_store_product
+*.swp
+__pycache__
