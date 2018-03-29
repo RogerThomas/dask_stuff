@@ -123,15 +123,18 @@ def calculate_switching(df):
 
 def read_df(cann_group_df):
     glob_string = 'data/2017*.parquet'
-    glob_string = 's3://switching-large/trans_product/2017_02*.parquet'
+    bucket = 'switching-large'
+    compression = '-gzip'
+    compression = '-brotli'
+    compression = ''
+
+    glob_string = 's3://%s%s/trans_product/2017_01_0*.parquet' % (bucket, compression)
     logger.info('Reading data %s' % glob_string)
     df = ddf.read_parquet(glob_string, engine='pyarrow')
     df = df[df['productKey'].isin(cann_group_df['productKey'])]
     df = df.persist()
-    logger.info('Persisting data: %s' % len(df))
     df['cannGroupKey'] = df['productKey'].map(cann_group_df['cannGroupKey'])
-    df = df.drop(['unitVolume'], axis=1)
-    logger.info('Read data: %s rows, %s mb' % (len(df), df_mem_in_mb(df).compute()))
+
     return df
 
 
@@ -147,8 +150,9 @@ def main(*args):
     pd.set_option('display.large_repr', 'truncate'); pd.set_option('display.max_columns', 0)  # noqa
     # pd.set_option('display.max_rows', 1000)  # noqa
     cann_group_df = make_cann_group_df()
-    with Timer('read'):
-    	df = read_df(cann_group_df)
+    with Timer('Read'):
+        df = read_df(cann_group_df)
+        logger.info('Read data: %s rows, %s mb' % (len(df), df_mem_in_mb(df).compute()))
     df = df.set_index('customerKey', drop=True)
     df = df.repartition(npartitions=ncores)
     """
