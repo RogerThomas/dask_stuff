@@ -1,38 +1,19 @@
 #!/usr/bin/env python
 import random
-import sys
-import time
 
-import dask.dataframe as ddf
 import numpy as np
 import pandas as pd
 from dask.distributed import Client
 
-from common import Config, logger, set_aws_creds, df_mem_in_mb
-
-ncores = None
+from common import Config, Timer, df_mem_in_mb, get_args, get_data_client, logger
 
 
-class Timer:
-    def __init__(self, msg):
-        self._msg = msg
-
-    def __enter__(self):
-        self._t1 = time.time()
-        return self
-
-    def __exit__(self, error_type, error_value, tb):
-        if error_type is not None:
-            raise
-        print('%s took: %s' % (self._msg, time.time() - self._t1))
-
-
-def make_cann_group_df():
+def make_cann_group_df(num_products=25):
     random.seed(10)
     cgs = [(1, 'Nestle'), (2, 'Cadbury'), (3, 'Other')]
     cann_group_data = []
     current_product_keys = set()
-    for _ in range(250):
+    for _ in range(num_products):
         while True:
             product_key = random.randint(0, Config.num_products)
             if product_key not in current_product_keys:
@@ -121,49 +102,29 @@ def calculate_switching(df):
     print(trans_seq_num_df)
 
 
-def read_df(cann_group_df):
-    glob_string = 'data/2017*.parquet'
-    bucket = 'switching-large'
-    compression = '-gzip'
-    compression = '-brotli'
-    compression = ''
-
-    glob_string = 's3://%s%s/trans_product/2017_01_0*.parquet' % (bucket, compression)
-    logger.info('Reading data %s' % glob_string)
-    df = ddf.read_parquet(glob_string, engine='pyarrow')
-    df = df[df['productKey'].isin(cann_group_df['productKey'])]
-    df = df.persist()
-    df['cannGroupKey'] = df['productKey'].map(cann_group_df['cannGroupKey'])
-
+def read_df(args, product_keys):
+    d_cli = get_data_client(args)
+    with Timer('Read'):
+        df = d_cli.read_df()
+        df = df[df['productKey'].isin(product_keys)]
+        df = df.persist()
+        logger.info('Read data: %s rows, %s mb' % (len(df), df_mem_in_mb(df).compute()))
     return df
 
 
-def main(*args):
-    if args:
-        client = Client()
-    else:
-        client = Client('127.0.0.1:8786')
-    print(client)
-    global ncores
+def main():
+    args = get_args()
+    client = Client('127.0.0.1:8786')
     ncores = sum(client.ncores().values())
-    set_aws_creds()
-    pd.set_option('display.large_repr', 'truncate'); pd.set_option('display.max_columns', 0)  # noqa
-    # pd.set_option('display.max_rows', 1000)  # noqa
-    cann_group_df = make_cann_group_df()
-    with Timer('Read'):
-        df = read_df(cann_group_df)
-        logger.info('Read data: %s rows, %s mb' % (len(df), df_mem_in_mb(df).compute()))
+    pd.set_option('display.large_repr', 'truncate'); pd.set_option('display.max_columns', 0)  # noqa pd.set_option('display.max_rows', 1000)  # noqa
+    cann_group_df = make_cann_group_df(num_products=100)
+    df = read_df(args, cann_group_df['productKey'])
+    logger.info('Setting index')
     df = df.set_index('customerKey', drop=True)
+    logger.info('Repartitioning')
     df = df.repartition(npartitions=ncores)
-    """
-    # No here
-    df = df.compute()
-    df = df.set_index('customerKey', drop=True)
-    df = trans_seq_num(df)
-    print(df)
-    print(df.columns.tolist())
-    return
-    """
+    logger.info('Mapping Cann Group')
+    df['cannGroupKey'] = df['productKey'].map(cann_group_df['cannGroupKey'])
     logger.info('Persisting')
     df = client.persist(df)
     logger.info('Cann Groups')
@@ -177,4 +138,4 @@ def main(*args):
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:])
+    main()
